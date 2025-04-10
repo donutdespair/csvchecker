@@ -63,11 +63,11 @@
             min-height: 2em;
         }
         #result p, #result ul { margin: 0.5em 0; }
-        #result ul { padding-left: 20px; /* Indent error list */ }
-        #result li { margin-bottom: 0.3em; /* Space between errors */ }
+        #result ul { padding-left: 20px; }
+        #result li { margin-bottom: 0.3em; }
         #result i { color: #555; }
         .error-summary { color: #dc3545; font-weight: bold; }
-        .error-detail { color: #dc3545; } /* Error details */
+        .error-detail { color: #dc3545; }
         .success { color: #28a745; font-weight: bold; }
     </style>
 </head>
@@ -78,7 +78,7 @@
     <ul>
         <li><b>Basic Structure:</b> Ensures the file has at least a header row and one data row.</li>
         <li><b>Unique Headers:</b> Verifies that all column names in the first row (headers) are unique (case-insensitive). Reports each duplicate header and *all* columns where it appears.</li>
-        <li><b>Allowed Characters:</b> Checks fields <em>within columns defined by the header</em> for characters outside the standard printable ASCII range (space through tilde '~') and common extended characters (like accents, symbols, code 160-255). Allows CR, LF, Tab, Comma. Reports potentially problematic characters (e.g., low-value control codes) with their location and code. Data in columns beyond the header count is ignored by this check.</li>
+        <li><b>Allowed Characters:</b> Checks all fields in all data rows for characters outside the standard printable ASCII range (space through tilde '~') and common extended characters (code 160-255). Allows CR, LF, Tab, Comma. Reports potentially problematic characters (e.g., low-value control codes) with their location and code.</li>
         <li><b>File Encoding:</b> Attempts to automatically read the file using common encodings (UTF-8, Windows-1252, ISO-8859-1).</li>
         <li><b>First Column Rules (Optional):</b> If "Is the first column a unique ID?" is checked:
             <ul>
@@ -111,7 +111,7 @@
             let num = colNum;
             while (num > 0) {
                 let remainder = (num - 1) % 26;
-                columnLetter = String.fromCharCode(65 + remainder) + columnLetter; // 65 is ASCII for 'A'
+                columnLetter = String.fromCharCode(65 + remainder) + columnLetter;
                 num = Math.floor((num - 1) / 26);
             }
             return columnLetter;
@@ -119,61 +119,45 @@
 
         // --- Individual Check Functions (Return Array of errors) ---
 
-        /** Returns error message in array or empty array */
         function checkMinimumRows(lines) {
-            if (lines.length < 2) {
-                return ["CSV must have at least a header and one data row."];
-            }
-            return []; // No errors
+            if (lines.length < 2) { return ["CSV must have at least a header and one data row."]; }
+            return [];
         }
 
-        /** Returns array of errors for all duplicate headers */
         function checkHeaderUniqueness(lines) {
             const errors = [];
-            if (!lines || lines.length === 0 || typeof lines[0] !== 'string') {
-                 return ["Error: Cannot read header row."];
-            }
+            if (!lines || lines.length === 0 || typeof lines[0] !== 'string') { return ["Error: Cannot read header row."]; }
             const headers = lines[0].split(',').map(header => header.trim());
-            const headerLocations = new Map(); // Map: lowerHeader -> [colNum1, colNum2, ...] (1-based)
-
+            const headerLocations = new Map();
             for (let i = 0; i < headers.length; i++) {
-                const currentHeader = headers[i];
-                const lowerHeader = currentHeader.toLowerCase();
-                const currentColumnNum = i + 1;
-
-                if (!headerLocations.has(lowerHeader)) {
-                    headerLocations.set(lowerHeader, []);
-                }
+                const currentHeader = headers[i]; const lowerHeader = currentHeader.toLowerCase(); const currentColumnNum = i + 1;
+                if (!headerLocations.has(lowerHeader)) { headerLocations.set(lowerHeader, []); }
                 headerLocations.get(lowerHeader).push(currentColumnNum);
             }
-
-            // Check for duplicates
             for (const [lowerHeader, locations] of headerLocations.entries()) {
                 if (locations.length > 1) {
-                    const originalHeader = headers[locations[0] - 1];
-                    const columnLetters = locations.map(num => getColumnLetter(num)).join(', ');
+                    const originalHeader = headers[locations[0] - 1]; const columnLetters = locations.map(num => getColumnLetter(num)).join(', ');
                     errors.push(`Error in Row 1: Duplicate header (case-insensitive): '${originalHeader}'. Appears in columns ${columnLetters}.`);
                 }
             }
             return errors;
         }
 
-        // --- Updated checkAsciiCharacters Function (Relaxed Rules) ---
+        // --- Updated checkAsciiCharacters Function (Checks All Columns) ---
         /**
-         * Checks fields *within columns defined by the header* for characters outside the
-         * standard printable ASCII range (\x20-\x7E) AND the common extended range (\xA0-\xFF).
-         * Allows CR, LF, Tab, Comma. Reports all occurrences based on Row and CSV Column Letter.
+         * Checks ALL fields in data rows for characters outside the standard printable ASCII
+         * range (\x20-\x7E) AND the common extended range (\xA0-\xFF). Allows CR, LF, Tab, Comma.
+         * Reports all occurrences based on Row and CSV Column Letter.
          * @param {string[]} lines - Array of strings, each representing a line from the CSV.
          * @returns {string[]} Array of error messages.
          */
         function checkAsciiCharacters(lines) {
             const errors = [];
-            // Updated Regex: Allows basic printable AND common extended range (\xA0-\xFF)
-            // It flags characters NOT in the set: \x20-\x7E OR \xA0-\xFF OR \r OR \n OR \t OR ,
+            // Allows basic printable AND common extended range (\xA0-\xFF)
+            // Flags characters NOT in the set: \x20-\x7E OR \xA0-\xFF OR \r OR \n OR \t OR ,
             const disallowedCharsRegex = /[^\x20-\x7E\xA0-\xFF\r\n\t,]/;
 
-            const numHeaders = (lines && lines.length > 0 && typeof lines[0] === 'string') ? lines[0].split(',').length : 0;
-            if (numHeaders === 0 && lines.length > 0) { return []; }
+            // No longer need numHeaders for loop limiting here
 
             for (let i = 1; i < lines.length; i++) { // Start from data row 1
                 const line = lines[i];
@@ -181,27 +165,24 @@
 
                 if (line && !/^\s*$/.test(line)) {
                     const fields = line.split(',');
-                    for (let k = 0; k < numHeaders; k++) { // Iterate based on header count
-                        if (k < fields.length) { // Check if field exists
-                            const field = fields[k];
-                            const colNum = k + 1;
-                            const colLetter = getColumnLetter(colNum);
 
-                            // Use the updated (more relaxed) regex to test the field
-                            if (disallowedCharsRegex.test(field)) {
-                                for (let charIdx = 0; charIdx < field.length; charIdx++) {
-                                    const char = field[charIdx];
-                                    // Use the updated regex to test each character
-                                    if (disallowedCharsRegex.test(char)) {
-                                        const charCode = char.charCodeAt(0);
-                                        // Always show code for clarity, especially for control chars
-                                        const charRepresentation = `(character code ${charCode})`;
-                                        errors.push(`Error in Row ${rowNum}, Column ${colLetter}: Field contains potentially problematic character: '${charRepresentation}' at position ${charIdx + 1} within the field.`);
-                                    }
+                    // Loop through ALL fields found in the current row
+                    for (let k = 0; k < fields.length; k++) {
+                        const field = fields[k];
+                        const colNum = k + 1;
+                        const colLetter = getColumnLetter(colNum);
+
+                        // Check if the field contains any disallowed character
+                        if (disallowedCharsRegex.test(field)) {
+                            for (let charIdx = 0; charIdx < field.length; charIdx++) {
+                                const char = field[charIdx];
+                                // Check each character individually
+                                if (disallowedCharsRegex.test(char)) {
+                                    const charCode = char.charCodeAt(0);
+                                    const charRepresentation = `(character code ${charCode})`;
+                                    errors.push(`Error in Row ${rowNum}, Column ${colLetter}: Field contains potentially problematic character: '${charRepresentation}' at position ${charIdx + 1} within the field.`);
                                 }
                             }
-                        } else {
-                            break; // Row is shorter than header count, stop checking fields for this row
                         }
                     } // End field loop (k)
                 } // End line check
@@ -211,7 +192,6 @@
         // --- End Updated checkAsciiCharacters Function ---
 
 
-        /** Returns array of errors for all empty first column cells */
         function checkFirstColumnNotEmpty(lines) {
             const errors = [];
             const firstColumnValues = lines.slice(1).map(line => typeof line === 'string' ? (line.split(',')[0]?.trim() ?? '') : '');
@@ -224,7 +204,6 @@
             return errors;
         }
 
-        /** Returns array of errors for all duplicated first column values */
         function checkFirstColumnUniqueness(lines) {
             const errors = [];
             const firstColumnValues = lines.slice(1).map(line => typeof line === 'string' ? (line.split(',')[0]?.trim() ?? '') : '');
@@ -319,8 +298,8 @@
                         updateStatus('Checking header uniqueness...');
                         allErrors = allErrors.concat(checkHeaderUniqueness(lines));
 
-                        // Using the updated, more relaxed ASCII check
-                        updateStatus('Checking for problematic characters (within header columns)...');
+                        // Using the ASCII check that looks at ALL columns now
+                        updateStatus('Checking for problematic characters (all columns)...');
                         allErrors = allErrors.concat(checkAsciiCharacters(lines));
 
                         // Conditional checks
