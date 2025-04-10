@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CSV File Checker</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 20px;
+            line-height: 1.5;
+        }
+        #fileForm {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            background-color: #f8f9fa;
+        }
+        input[type="file"] {
+            margin-bottom: 10px;
+            display: block;
+        }
+        .checkbox-container {
+            margin-bottom: 15px;
+        }
+        .button-container {
+            display: flex;
+            gap: 10px;
+        }
+        button {
+            padding: 10px 15px;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 1em;
+        }
+        button#checkButton { background-color: #007bff; }
+        button#checkButton:hover { background-color: #0056b3; }
+        button#resetButton { background-color: #6c757d; }
+         button#resetButton:hover { background-color: #5a6268; }
+        #statusArea {
+            margin-top: 15px;
+            font-style: italic;
+            color: #555;
+            min-height: 1.5em;
+        }
+        #result {
+            margin-top: 5px;
+            padding: 10px;
+            border: 1px solid #eee;
+            border-radius: 5px;
+            background-color: #fdfdfe;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            min-height: 2em;
+        }
+        #result p, #result ul { margin: 0.5em 0; }
+        #result ul { padding-left: 20px; /* Indent error list */ }
+        #result li { margin-bottom: 0.3em; /* Space between errors */ }
+        #result i { color: #555; }
+        .error-summary { color: #dc3545; font-weight: bold; }
+        .error-detail { color: #dc3545; } /* Error details */
+        .success { color: #28a745; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>CSV File Checker</h1>
+
+    <p>This tool checks your uploaded CSV file for several common formatting issues and potential errors. It will run all checks and list all errors found.</p>
+    <ul>
+        <li><b>Basic Structure:</b> Ensures the file has at least a header row and one data row.</li>
+        <li><b>Unique Headers:</b> Verifies that all column names in the first row (headers) are unique (case-insensitive). Reports each duplicate header and *all* columns where it appears.</li>
+        <li><b>Standard Characters:</b> Checks for characters outside the standard printable ASCII range (space through tilde '~'), plus common whitespace and commas. Reports *all* locations (row, CSV column letter like A, B, C...) and character codes found.</li>
+        <li><b>File Encoding:</b> Attempts to automatically read the file using common encodings (UTF-8, Windows-1252, ISO-8859-1).</li>
+        <li><b>First Column Rules (Optional):</b> If "Is the first column a unique ID?" is checked:
+            <ul>
+                <li>Reports *all* rows where the first column (Column A) is empty.</li>
+                <li>Reports *each value* in the first column (Column A) that is duplicated and *all* rows where it appears.</li>
+            </ul>
+        </li>
+    </ul>
+    <hr>
+    <div id="fileForm">
+        <h2>Upload CSV File</h2>
+        <input type="file" id="csvFile" accept=".csv, text/csv">
+        <div class="checkbox-container">
+            <input type="checkbox" id="uniqueIdCheck" name="uniqueIdCheck">
+            <label for="uniqueIdCheck">Is the first column a unique ID?</label>
+        </div>
+        <div class="button-container">
+             <button id="checkButton" onclick="handleFileUpload()">Check CSV File</button>
+             <button id="resetButton" type="button" onclick="resetForm()">Reset</button>
+        </div>
+    </div>
+
+    <div id="statusArea"></div>
+    <div id="result"></div>
+
+    <script>
+        // --- Helper Function for Spreadsheet Column Letters ---
+        function getColumnLetter(colNum) {
+            let columnLetter = "";
+            let num = colNum;
+            while (num > 0) {
+                let remainder = (num - 1) % 26;
+                columnLetter = String.fromCharCode(65 + remainder) + columnLetter; // 65 is ASCII for 'A'
+                num = Math.floor((num - 1) / 26);
+            }
+            return columnLetter;
+         }
+
+        // --- Individual Check Functions (Return Array of errors) ---
+
+        /** Returns error message in array or empty array */
+        function checkMinimumRows(lines) {
+            if (lines.length < 2) {
+                return ["CSV must have at least a header and one data row."];
+            }
+            return []; // No errors
+        }
+
+        /** Returns array of errors for all duplicate headers */
+        function checkHeaderUniqueness(lines) {
+            const errors = [];
+            if (!lines || lines.length === 0 || typeof lines[0] !== 'string') {
+                 return ["Error: Cannot read header row."];
+            }
+            const headers = lines[0].split(',').map(header => header.trim());
+            const headerLocations = new Map(); // Map: lowerHeader -> [colNum1, colNum2, ...] (1-based)
+
+            for (let i = 0; i < headers.length; i++) {
+                const currentHeader = headers[i];
+                const lowerHeader = currentHeader.toLowerCase();
+                const currentColumnNum = i + 1;
+
+                if (!headerLocations.has(lowerHeader)) {
+                    headerLocations.set(lowerHeader, []);
+                }
+                headerLocations.get(lowerHeader).push(currentColumnNum);
+            }
+
+            // Check for duplicates
+            for (const [lowerHeader, locations] of headerLocations.entries()) {
+                if (locations.length > 1) {
+                    const originalHeader = headers[locations[0] - 1];
+                    const columnLetters = locations.map(num => getColumnLetter(num)).join(', ');
+                    errors.push(`Error in Row 1: Duplicate header (case-insensitive): '${originalHeader}'. Appears in columns ${columnLetters}.`);
+                }
+            }
+            return errors;
+        }
+
+        // *** Removed checkColumnCountConsistency function definition ***
+
+        /**
+         * Checks if any field contains non-standard ASCII characters. Reports all occurrences based on Row and CSV Column Letter.
+         * Allows common whitespace, comma, printable ASCII (dec hex 20-7E).
+         * @param {string[]} lines - Array of strings, each representing a line from the CSV.
+         * @returns {string[]} Array of error messages.
+         */
+        function checkAsciiCharacters(lines) {
+            const errors = [];
+            // Allowed: printable ASCII (space to ~), CR, LF, Tab, Comma
+            const nonAsciiRegex = /[^\x20-\x7E\r\n\t,]/;
+
+            for (let i = 0; i < lines.length; i++) { // Iterate through lines (rows)
+                const line = lines[i];
+                const rowNum = i + 1; // 1-based row number
+
+                // Only check non-blank lines
+                if (line && !/^\s*$/.test(line)) {
+                    // Simple split by comma. Limitation: Doesn't handle commas inside quoted fields well.
+                    const fields = line.split(',');
+
+                    for (let k = 0; k < fields.length; k++) { // Iterate through fields (columns)
+                        const field = fields[k]; // Current field's content
+                        const colNum = k + 1; // 1-based column number
+                        const colLetter = getColumnLetter(colNum);
+
+                        // Check if the *entire field* contains any non-standard char first for efficiency
+                        if (nonAsciiRegex.test(field)) {
+                            // If yes, find *all* non-standard characters within this specific field
+                            for (let charIdx = 0; charIdx < field.length; charIdx++) {
+                                const char = field[charIdx];
+                                if (nonAsciiRegex.test(char)) { // Check each character
+                                    const charCode = char.charCodeAt(0);
+                                    // Represent printable chars directly, others by code
+                                    const charRepresentation = charCode >= 32 && charCode <= 126 ? char : `(character code ${charCode})`;
+                                    // Report error identifying Row, Column Letter, the specific character, and position within field
+                                    errors.push(`Error in Row ${rowNum}, Column ${colLetter}: Field contains non-standard ASCII character: '${charRepresentation}' at position ${charIdx + 1} within the field.`);
+                                }
+                            }
+                        }
+                    } // End field loop (k)
+                } // End line check
+            } // End line loop (i)
+            return errors;
+        }
+
+
+        /** Returns array of errors for all empty first column cells */
+        function checkFirstColumnNotEmpty(lines) {
+            const errors = [];
+            // Slice(1) skips header row. Robustly handle potential undefined lines or non-string split results.
+            const firstColumnValues = lines.slice(1).map(line => typeof line === 'string' ? (line.split(',')[0]?.trim() ?? '') : '');
+
+            for (let i = 0; i < firstColumnValues.length; i++) {
+                if (firstColumnValues[i] === '') {
+                    const rowNum = i + 2; // +1 for slice, +1 for 1-based index
+                    errors.push(`Error in Row ${rowNum}, Column A: The first column (expected to be unique ID) contains an empty value.`);
+                }
+            }
+            return errors;
+        }
+
+        /** Returns array of errors for all duplicated first column values */
+        function checkFirstColumnUniqueness(lines) {
+            const errors = [];
+            const firstColumnValues = lines.slice(1).map(line => typeof line === 'string' ? (line.split(',')[0]?.trim() ?? '') : '');
+            const valueLocations = new Map(); // Map: value -> [rowNum1, rowNum2, ...] (1-based)
+
+            for (let i = 0; i < firstColumnValues.length; i++) {
+                 const value = firstColumnValues[i];
+                 if (value !== '') { // Only track non-empty values for duplicates
+                    const rowNum = i + 2; // +1 for slice, +1 for 1-based
+                    if (!valueLocations.has(value)) {
+                        valueLocations.set(value, []);
+                    }
+                    valueLocations.get(value).push(rowNum);
+                 }
+            }
+
+            // Check for duplicates
+            for (const [value, locations] of valueLocations.entries()) {
+                if (locations.length > 1) {
+                    errors.push(`Error in Column A: Duplicate value '${value}' found in rows ${locations.join(', ')} (when checked as unique ID).`);
+                }
+            }
+            return errors;
+        }
+
+        // --- Encoding Detection (Remains the same) ---
+        function readFileWithEncoding(file, encoding) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const csvData = e.target.result;
+                    if (csvData.includes('\uFFFD')) { // Check for Unicode Replacement Character
+                        reject(new Error(`Decoding with ${encoding} resulted in replacement characters (U+FFFD).`));
+                    } else {
+                        resolve({ data: csvData, encoding: encoding });
+                    }
+                };
+                reader.onerror = (e) => {
+                    reject(new Error(`FileReader error with encoding ${encoding}: ${e.target.error}`));
+                };
+                try {
+                    reader.readAsText(file, encoding);
+                } catch (readError) {
+                    reject(new Error(`Failed to initiate read with encoding ${encoding}: ${readError.message}`));
+                }
+            });
+         }
+
+        // --- Status Update Helper (Remains the same) ---
+        function updateStatus(message) {
+            const statusDiv = document.getElementById('statusArea');
+            if (statusDiv) {
+                statusDiv.innerHTML = message ? `<i>${message}</i>` : '';
+            }
+         }
+
+        // --- Reset Form Function (Remains the same) ---
+        function resetForm() {
+            const fileInput = document.getElementById('csvFile');
+            const uniqueIdCheckbox = document.getElementById('uniqueIdCheck');
+            const statusDiv = document.getElementById('statusArea');
+            const resultDiv = document.getElementById('result');
+            fileInput.value = null;
+            uniqueIdCheckbox.checked = false;
+            if (statusDiv) statusDiv.innerHTML = '';
+            if (resultDiv) resultDiv.innerHTML = '';
+            console.log("Form reset.");
+         }
+
+
+        // --- File Handling Entry Point (Collects all errors) ---
+        async function handleFileUpload() {
+            const fileInput = document.getElementById('csvFile');
+            const resultDiv = document.getElementById('result');
+            const file = fileInput.files[0];
+            const uniqueIdCheckbox = document.getElementById('uniqueIdCheck');
+            const isUniqueIdCheckEnabled = uniqueIdCheckbox.checked;
+
+            resultDiv.innerHTML = '';
+            updateStatus('');
+
+            if (file) {
+                const encodingsToTry = ['UTF-8', 'windows-1252', 'ISO-8859-1'];
+                let csvData = null;
+                let usedEncoding = null;
+                let successReading = false;
+
+                updateStatus('Attempting to read file and detect encoding...');
+
+                // --- Encoding Detection Loop ---
+                for (const encoding of encodingsToTry) {
+                    console.log(`Trying encoding: ${encoding}...`);
+                    try {
+                        const result = await readFileWithEncoding(file, encoding);
+                        csvData = result.data;
+                        usedEncoding = result.encoding;
+                        successReading = true;
+                        console.log(`Successfully read using encoding: ${usedEncoding}`);
+                        updateStatus(`File read using encoding: ${usedEncoding}. Starting checks...`);
+                        break; // Exit loop on first success
+                    } catch (error) {
+                        console.warn(`Reading with encoding ${encoding} failed: ${error.message}`);
+                    }
+                } // End encoding loop
+
+                // --- Proceed with Checks if Reading Succeeded ---
+                if (successReading && csvData !== null) {
+                    let allErrors = []; // Initialize array to collect all errors
+
+                    try {
+                        // Normalize line endings and split
+                        const normalizedCsvData = csvData.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+                        const lines = normalizedCsvData.trim().split('\n');
+
+                        // --- Run All Checks Sequentially, Collecting Errors ---
+                        updateStatus('Checking minimum rows...');
+                        allErrors = allErrors.concat(checkMinimumRows(lines));
+
+                        // Run header check
+                        updateStatus('Checking header uniqueness...');
+                        allErrors = allErrors.concat(checkHeaderUniqueness(lines));
+
+                        // *** Removed call to checkColumnCountConsistency ***
+
+                        updateStatus('Checking for non-standard characters...');
+                        allErrors = allErrors.concat(checkAsciiCharacters(lines));
+
+                        // Conditional checks
+                        if (isUniqueIdCheckEnabled) {
+                            updateStatus('Checking first column for empty values...');
+                            allErrors = allErrors.concat(checkFirstColumnNotEmpty(lines));
+
+                            updateStatus('Checking first column for uniqueness...');
+                            allErrors = allErrors.concat(checkFirstColumnUniqueness(lines));
+                        }
+                        // --- End of Checks ---
+
+                        updateStatus('Checks complete.');
+
+                        // --- Display Results ---
+                        if (allErrors.length === 0) {
+                            resultDiv.innerHTML = `<p class="success">CSV checks passed successfully! No errors found.</p>`;
+                        } else {
+                            let errorHtml = `<p class="error-summary">Found ${allErrors.length} error(s):</p><ul>`;
+                            // Limit displayed errors for performance/readability
+                            const errorsToShow = allErrors.slice(0, 50); // Show first 50 errors
+                            errorsToShow.forEach(errMsg => {
+                                // Basic sanitization to prevent HTML injection from error messages
+                                const sanitizedMsg = errMsg.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                                errorHtml += `<li class="error-detail">${sanitizedMsg}</li>`;
+                            });
+                            if (allErrors.length > 50) {
+                                errorHtml += `<li><i>... and ${allErrors.length - 50} more errors not shown.</i></li>`;
+                            }
+                            errorHtml += `</ul>`;
+                            resultDiv.innerHTML = errorHtml;
+                        }
+
+                    } catch (processingError) {
+                         // Catch unexpected errors during the checking process itself
+                         console.error("Error during CSV processing:", processingError);
+                         updateStatus('Processing Error.');
+                         resultDiv.innerHTML = `<p class="error">An unexpected error occurred during CSV processing: ${processingError.message}. Check the console for details.</p>`;
+                    }
+                } else {
+                    // If reading failed after trying all encodings
+                    updateStatus('File reading failed.');
+                    resultDiv.innerHTML = '<p class="error">Could not automatically determine file encoding without errors (tried UTF-8, windows-1252, ISO-8859-1). The file might use a different encoding, be corrupted, or contain invalid byte sequences.</p>';
+                }
+
+            } else {
+                resultDiv.innerHTML = '<p class="error">Please select a CSV file.</p>';
+                updateStatus('');
+            }
+        } // End handleFileUpload
+    </script>
+
+</body>
+</html>
