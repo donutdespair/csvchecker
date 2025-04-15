@@ -5,63 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CSV File Checker</title>
     <style>
-        body {
-            font-family: sans-serif;
-            margin: 20px;
-            line-height: 1.5;
-        }
-        #fileForm {
-            margin-bottom: 20px;
-            padding: 15px;
-            border: 1px solid #ccc;
-            border-radius: 5px;
-            background-color: #f8f9fa;
-        }
-        input[type="file"] {
-            margin-bottom: 10px;
-            display: block;
-        }
-        .checkbox-container {
-            margin-bottom: 15px;
-            display: flex;
-            align-items: flex-start;
-        }
-         .checkbox-container input[type="checkbox"] {
-            margin-top: 0.2em;
-            margin-right: 0.5em;
-        }
-        .button-container {
-            display: flex;
-            gap: 10px;
-        }
-        button {
-            padding: 10px 15px;
-            color: white;
-            border: none;
-            border-radius: 3px;
-            cursor: pointer;
-            font-size: 1em;
-        }
+        /* ... (CSS styles remain the same) ... */
+        body { font-family: sans-serif; margin: 20px; line-height: 1.5; }
+        #fileForm { margin-bottom: 20px; padding: 15px; border: 1px solid #ccc; border-radius: 5px; background-color: #f8f9fa; }
+        input[type="file"] { margin-bottom: 10px; display: block; }
+        .checkbox-container { margin-bottom: 15px; display: flex; align-items: flex-start; }
+        .checkbox-container input[type="checkbox"] { margin-top: 0.2em; margin-right: 0.5em; }
+        .button-container { display: flex; gap: 10px; }
+        button { padding: 10px 15px; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 1em; }
         button#checkButton { background-color: #007bff; }
         button#checkButton:hover { background-color: #0056b3; }
         button#resetButton { background-color: #6c757d; }
-         button#resetButton:hover { background-color: #5a6268; }
-        #statusArea {
-            margin-top: 15px;
-            font-style: italic;
-            color: #555;
-            min-height: 1.5em;
-        }
-        #result {
-            margin-top: 5px;
-            padding: 10px;
-            border: 1px solid #eee;
-            border-radius: 5px;
-            background-color: #fdfdfe;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            min-height: 2em;
-        }
+        button#resetButton:hover { background-color: #5a6268; }
+        #statusArea { margin-top: 15px; font-style: italic; color: #555; min-height: 1.5em; }
+        #result { margin-top: 5px; padding: 10px; border: 1px solid #eee; border-radius: 5px; background-color: #fdfdfe; white-space: pre-wrap; word-wrap: break-word; min-height: 2em; }
         #result p, #result ul { margin: 0.5em 0; }
         #result ul { padding-left: 20px; }
         #result li { margin-bottom: 0.3em; }
@@ -74,18 +31,15 @@
 <body>
     <h1>CSV File Checker</h1>
 
-    <p>This tool checks your uploaded CSV file for several common formatting issues and potential errors. It will run all checks and list all errors found.</p>
+    <p>This tool checks your uploaded CSV file for common issues. It runs all applicable checks and lists all errors found.</p>
     <ul>
-        <li><b>Basic Structure:</b> Ensures the file has at least a header row and one data row.</li>
-        <li><b>Unique Headers:</b> Verifies that all column names in the first row (headers) are unique (case-insensitive). Reports each duplicate header and *all* columns where it appears.</li>
-        <li><b>Allowed Characters:</b> Checks all fields in all data rows for characters outside the standard printable ASCII range (space through tilde '~') and common extended characters (code 160-255). Allows CR, LF, Tab, Comma. Reports potentially problematic characters (e.g., low-value control codes) with their location and code.</li>
-        <li><b>File Encoding:</b> Attempts to automatically read the file using common encodings (UTF-8, Windows-1252, ISO-8859-1).</li>
-        <li><b>First Column Rules (Optional):</b> If "Is the first column a unique ID?" is checked:
-            <ul>
-                <li>Reports *all* rows where the first column (Column A) is empty.</li>
-                <li>Reports *each value* in the first column (Column A) that is duplicated and *all* rows where it appears.</li>
-            </ul>
-        </li>
+        <li><b>Basic Structure:</b> Checks for a header row and at least one data row.</li>
+        <li><b>Blank Lines:</b> Checks for empty or whitespace-only lines in the data.</li>
+        <li><b>Unique Headers:</b> Checks for duplicate column names in the header row (case-insensitive).</li>
+        <li><b>Unexpected Line Breaks:</b> Checks for line breaks within data cells that could indicate formatting problems (includes checks for newlines inside quotes and lines suggesting improperly ended multi-line fields).</li>
+        <li><b>Problematic Characters:</b> Checks data cells for unusual characters (like hidden control codes) outside the normal range of text, numbers, and common symbols/accents.</li>
+        <li><b>File Encoding:</b> Tries common encodings (UTF-8, Windows-1252, etc.) to read the file correctly and prevent character display issues.</li>
+        <li><b>First Column ID Check (Optional):</b> If checked, verifies the first column (A) has no empty cells and no duplicate IDs.</li>
     </ul>
     <hr>
     <div id="fileForm">
@@ -106,149 +60,52 @@
 
     <script>
         // --- Helper Function for Spreadsheet Column Letters ---
-        function getColumnLetter(colNum) {
-            let columnLetter = "";
-            let num = colNum;
-            while (num > 0) {
-                let remainder = (num - 1) % 26;
-                columnLetter = String.fromCharCode(65 + remainder) + columnLetter;
-                num = Math.floor((num - 1) / 26);
-            }
-            return columnLetter;
+        function getColumnLetter(colNum) { /* ... same ... */
+             let columnLetter = ""; let num = colNum; while (num > 0) { let remainder = (num - 1) % 26; columnLetter = String.fromCharCode(65 + remainder) + columnLetter; num = Math.floor((num - 1) / 26); } return columnLetter;
          }
 
         // --- Individual Check Functions (Return Array of errors) ---
 
-        function checkMinimumRows(lines) {
-            if (lines.length < 2) { return ["CSV must have at least a header and one data row."]; }
-            return [];
-        }
-
-        function checkHeaderUniqueness(lines) {
-            const errors = [];
-            if (!lines || lines.length === 0 || typeof lines[0] !== 'string') { return ["Error: Cannot read header row."]; }
-            const headers = lines[0].split(',').map(header => header.trim());
-            const headerLocations = new Map();
-            for (let i = 0; i < headers.length; i++) {
-                const currentHeader = headers[i]; const lowerHeader = currentHeader.toLowerCase(); const currentColumnNum = i + 1;
-                if (!headerLocations.has(lowerHeader)) { headerLocations.set(lowerHeader, []); }
-                headerLocations.get(lowerHeader).push(currentColumnNum);
-            }
-            for (const [lowerHeader, locations] of headerLocations.entries()) {
-                if (locations.length > 1) {
-                    const originalHeader = headers[locations[0] - 1]; const columnLetters = locations.map(num => getColumnLetter(num)).join(', ');
-                    errors.push(`Error in Row 1: Duplicate header (case-insensitive): '${originalHeader}'. Appears in columns ${columnLetters}.`);
-                }
-            }
-            return errors;
-        }
-
-        // --- Updated checkAsciiCharacters Function (Checks All Columns) ---
-        /**
-         * Checks ALL fields in data rows for characters outside the standard printable ASCII
-         * range (\x20-\x7E) AND the common extended range (\xA0-\xFF). Allows CR, LF, Tab, Comma.
-         * Reports all occurrences based on Row and CSV Column Letter.
-         * @param {string[]} lines - Array of strings, each representing a line from the CSV.
-         * @returns {string[]} Array of error messages.
-         */
-        function checkAsciiCharacters(lines) {
-            const errors = [];
-            // Allows basic printable AND common extended range (\xA0-\xFF)
-            // Flags characters NOT in the set: \x20-\x7E OR \xA0-\xFF OR \r OR \n OR \t OR ,
-            const disallowedCharsRegex = /[^\x20-\x7E\xA0-\xFF\r\n\t,]/;
-
-            // No longer need numHeaders for loop limiting here
-
-            for (let i = 1; i < lines.length; i++) { // Start from data row 1
-                const line = lines[i];
-                const rowNum = i + 1;
-
-                if (line && !/^\s*$/.test(line)) {
-                    const fields = line.split(',');
-
-                    // Loop through ALL fields found in the current row
-                    for (let k = 0; k < fields.length; k++) {
-                        const field = fields[k];
-                        const colNum = k + 1;
-                        const colLetter = getColumnLetter(colNum);
-
-                        // Check if the field contains any disallowed character
-                        if (disallowedCharsRegex.test(field)) {
-                            for (let charIdx = 0; charIdx < field.length; charIdx++) {
-                                const char = field[charIdx];
-                                // Check each character individually
-                                if (disallowedCharsRegex.test(char)) {
-                                    const charCode = char.charCodeAt(0);
-                                    const charRepresentation = `(character code ${charCode})`;
-                                    errors.push(`Error in Row ${rowNum}, Column ${colLetter}: Field contains potentially problematic character: '${charRepresentation}' at position ${charIdx + 1} within the field.`);
-                                }
-                            }
-                        }
-                    } // End field loop (k)
-                } // End line check
-            } // End line loop (i)
-            return errors;
-        }
-        // --- End Updated checkAsciiCharacters Function ---
-
-
-        function checkFirstColumnNotEmpty(lines) {
-            const errors = [];
-            const firstColumnValues = lines.slice(1).map(line => typeof line === 'string' ? (line.split(',')[0]?.trim() ?? '') : '');
-            for (let i = 0; i < firstColumnValues.length; i++) {
-                if (firstColumnValues[i] === '') {
-                    const rowNum = i + 2;
-                    errors.push(`Error in Row ${rowNum}, Column A: The first column (expected to be unique ID) contains an empty value.`);
-                }
-            }
-            return errors;
-        }
-
-        function checkFirstColumnUniqueness(lines) {
-            const errors = [];
-            const firstColumnValues = lines.slice(1).map(line => typeof line === 'string' ? (line.split(',')[0]?.trim() ?? '') : '');
-            const valueLocations = new Map();
-            for (let i = 0; i < firstColumnValues.length; i++) {
-                 const value = firstColumnValues[i];
-                 if (value !== '') {
-                    const rowNum = i + 2;
-                    if (!valueLocations.has(value)) { valueLocations.set(value, []); }
-                    valueLocations.get(value).push(rowNum);
-                 }
-            }
-            for (const [value, locations] of valueLocations.entries()) {
-                if (locations.length > 1) {
-                    const sanitizedValue = value.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-                    errors.push(`Error in Column A: Duplicate value '${sanitizedValue}' found in rows ${locations.join(', ')} (when checked as unique ID).`);
-                }
-            }
-            return errors;
-        }
+        function checkMinimumRows(lines) { /* ... same ... */
+             if (lines.length < 2) { return ["CSV must have at least a header and one data row."]; } return [];
+         }
+        function checkBlankLines(lines) { /* ... same ... */
+             const errors = []; for (let i = 1; i < lines.length; i++) { const line = lines[i]; const rowNum = i + 1; if (line.trim() === '') { errors.push(`Error in Row ${rowNum}: Line is blank or contains only whitespace.`); } } return errors;
+         }
+        function checkDanglingQuoteLine(lines) { /* ... same ... */
+             const errors = []; for (let i = 1; i < lines.length; i++) { const line = lines[i]; const rowNum = i + 1; if (line.trim() === '"') { errors.push(`Error in Row ${rowNum}: Line contains only a quote character. This likely indicates an improperly terminated multi-line field starting on the previous row (Row ${rowNum - 1}).`); } } return errors;
+         }
+        function checkHeaderUniqueness(lines) { /* ... same ... */
+            const errors = []; if (!lines || lines.length === 0 || typeof lines[0] !== 'string') { return ["Error: Cannot read header row."]; } const headers = lines[0].split(',').map(header => header.trim()); const headerLocations = new Map(); for (let i = 0; i < headers.length; i++) { const currentHeader = headers[i]; const lowerHeader = currentHeader.toLowerCase(); const currentColumnNum = i + 1; if (!headerLocations.has(lowerHeader)) { headerLocations.set(lowerHeader, []); } headerLocations.get(lowerHeader).push(currentColumnNum); } for (const [lowerHeader, locations] of headerLocations.entries()) { if (locations.length > 1) { const originalHeader = headers[locations[0] - 1]; const columnLetters = locations.map(num => getColumnLetter(num)).join(', '); errors.push(`Error in Row 1: Duplicate header (case-insensitive): '${originalHeader}'. Appears in columns ${columnLetters}.`); } } return errors;
+         }
+        function checkNewlinesInQuotedFields(lines) { /* ... same ... */
+            const errors = []; const newlineChars = new Set(['\r', '\n', '\u2028', '\u2029']);
+            for (let i = 1; i < lines.length; i++) { const line = lines[i]; const rowNum = i + 1; let inQuotes = false; let currentColumn = 1; for (let j = 0; j < line.length; j++) { const char = line[j]; if (char === '"') { if (inQuotes && j + 1 < line.length && line[j + 1] === '"') { j++; } else { inQuotes = !inQuotes; } } else if (char === ',' && !inQuotes) { currentColumn++; } else if (newlineChars.has(char) && inQuotes) { const colLetter = getColumnLetter(currentColumn); let charDesc = "newline or line separator"; const charCode = char.charCodeAt(0); if (charCode === 10) charDesc = "newline (\\n)"; else if (charCode === 13) charDesc = "carriage return (\\r)"; else if (charCode === 8232) charDesc = "line separator (U+2028)"; else if (charCode === 8233) charDesc = "paragraph separator (U+2029)"; errors.push(`Error in Row ${rowNum}, Column ${colLetter} (approx.): Found a ${charDesc} character within a quoted field near character position ${j + 1}.`); } } } return errors;
+         }
+        function checkAsciiCharacters(lines) { /* ... same relaxed version checking all cols ... */
+            const errors = []; const disallowedCharsRegex = /[^\x20-\x7E\xA0-\xFF\r\n\t,]/;
+            for (let i = 1; i < lines.length; i++) { const line = lines[i]; const rowNum = i + 1; if (line && !/^\s*$/.test(line)) { const fields = line.split(','); for (let k = 0; k < fields.length; k++) { const field = fields[k]; const colNum = k + 1; const colLetter = getColumnLetter(colNum); if (disallowedCharsRegex.test(field)) { for (let charIdx = 0; charIdx < field.length; charIdx++) { const char = field[charIdx]; if (disallowedCharsRegex.test(char)) { const charCode = char.charCodeAt(0); const charRepresentation = `(character code ${charCode})`; errors.push(`Error in Row ${rowNum}, Column ${colLetter}: Field contains potentially problematic character: '${charRepresentation}' at position ${charIdx + 1} within the field.`); } } } } } } return errors;
+         }
+        function checkFirstColumnNotEmpty(lines) { /* ... same ... */
+            const errors = []; const firstColumnValues = lines.slice(1).map(line => typeof line === 'string' ? (line.split(',')[0]?.trim() ?? '') : ''); for (let i = 0; i < firstColumnValues.length; i++) { if (firstColumnValues[i] === '') { const rowNum = i + 2; errors.push(`Error in Row ${rowNum}, Column A: The first column (expected to be unique ID) contains an empty value.`); } } return errors;
+         }
+        function checkFirstColumnUniqueness(lines) { /* ... same ... */
+            const errors = []; const firstColumnValues = lines.slice(1).map(line => typeof line === 'string' ? (line.split(',')[0]?.trim() ?? '') : ''); const valueLocations = new Map(); for (let i = 0; i < firstColumnValues.length; i++) { const value = firstColumnValues[i]; if (value !== '') { const rowNum = i + 2; if (!valueLocations.has(value)) { valueLocations.set(value, []); } valueLocations.get(value).push(rowNum); } } for (const [value, locations] of valueLocations.entries()) { if (locations.length > 1) { const sanitizedValue = value.replace(/</g, "&lt;").replace(/>/g, "&gt;"); errors.push(`Error in Column A: Duplicate value '${sanitizedValue}' found in rows ${locations.join(', ')} (when checked as unique ID).`); } } return errors;
+         }
 
         // --- Encoding Detection (Remains the same) ---
-        function readFileWithEncoding(file, encoding) {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = (e) => { const csvData = e.target.result; if (csvData.includes('\uFFFD')) { reject(new Error(`Decoding with ${encoding} resulted in replacement characters (U+FFFD).`)); } else { resolve({ data: csvData, encoding: encoding }); } };
-                reader.onerror = (e) => { reject(new Error(`FileReader error with encoding ${encoding}: ${e.target.error}`)); };
-                try { reader.readAsText(file, encoding); } catch (readError) { reject(new Error(`Failed to initiate read with encoding ${encoding}: ${readError.message}`)); }
-            });
+        function readFileWithEncoding(file, encoding) { /* ... same ... */
+             return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = (e) => { const csvData = e.target.result; if (csvData.includes('\uFFFD')) { reject(new Error(`Decoding with ${encoding} resulted in replacement characters (U+FFFD).`)); } else { resolve({ data: csvData, encoding: encoding }); } }; reader.onerror = (e) => { reject(new Error(`FileReader error with encoding ${encoding}: ${e.target.error}`)); }; try { reader.readAsText(file, encoding); } catch (readError) { reject(new Error(`Failed to initiate read with encoding ${encoding}: ${readError.message}`)); } });
          }
 
         // --- Status Update Helper (Remains the same) ---
-        function updateStatus(message) { const statusDiv = document.getElementById('statusArea'); if (statusDiv) { statusDiv.innerHTML = message ? `<i>${message}</i>` : ''; } }
+        function updateStatus(message) { /* ... same ... */
+              const statusDiv = document.getElementById('statusArea'); if (statusDiv) { statusDiv.innerHTML = message ? `<i>${message}</i>` : ''; }
+         }
 
         // --- Reset Form Function (Remains the same) ---
-        function resetForm() {
-            const fileInput = document.getElementById('csvFile');
-            const uniqueIdCheckbox = document.getElementById('uniqueIdCheck');
-            const statusDiv = document.getElementById('statusArea');
-            const resultDiv = document.getElementById('result');
-            fileInput.value = null;
-            uniqueIdCheckbox.checked = false;
-            if (statusDiv) statusDiv.innerHTML = '';
-            if (resultDiv) resultDiv.innerHTML = '';
-            console.log("Form reset.");
+        function resetForm() { /* ... same ... */
+              const fileInput = document.getElementById('csvFile'); const uniqueIdCheckbox = document.getElementById('uniqueIdCheck'); const statusDiv = document.getElementById('statusArea'); const resultDiv = document.getElementById('result'); fileInput.value = null; uniqueIdCheckbox.checked = false; if (statusDiv) statusDiv.innerHTML = ''; if (resultDiv) resultDiv.innerHTML = ''; console.log("Form reset.");
          }
 
 
@@ -273,15 +130,8 @@
 
                 // --- Encoding Detection Loop ---
                 for (const encoding of encodingsToTry) { /* ... */
-                    console.log(`Trying encoding: ${encoding}...`);
-                    try {
-                        const result = await readFileWithEncoding(file, encoding);
-                        csvData = result.data; usedEncoding = result.encoding; successReading = true;
-                        console.log(`Successfully read using encoding: ${usedEncoding}`);
-                        updateStatus(`File read using encoding: ${usedEncoding}. Starting checks...`);
-                        break;
-                    } catch (error) { console.warn(`Reading with encoding ${encoding} failed: ${error.message}`); }
-                }
+                     console.log(`Trying encoding: ${encoding}...`); try { const result = await readFileWithEncoding(file, encoding); csvData = result.data; usedEncoding = result.encoding; successReading = true; console.log(`Successfully read using encoding: ${usedEncoding}`); updateStatus(`File read using encoding: ${usedEncoding}. Starting checks...`); break; } catch (error) { console.warn(`Reading with encoding ${encoding} failed: ${error.message}`); }
+                 }
 
                 // --- Proceed with Checks if Reading Succeeded ---
                 if (successReading && csvData !== null) {
@@ -295,10 +145,18 @@
                         updateStatus('Checking minimum rows...');
                         allErrors = allErrors.concat(checkMinimumRows(lines));
 
+                        updateStatus('Checking for blank lines...');
+                        allErrors = allErrors.concat(checkBlankLines(lines));
+
+                        updateStatus('Checking for lines with only quotes (indicative of multi-line issue)...');
+                        allErrors = allErrors.concat(checkDanglingQuoteLine(lines));
+
                         updateStatus('Checking header uniqueness...');
                         allErrors = allErrors.concat(checkHeaderUniqueness(lines));
 
-                        // Using the ASCII check that looks at ALL columns now
+                        updateStatus('Checking for newlines inside quoted fields...');
+                        allErrors = allErrors.concat(checkNewlinesInQuotedFields(lines)); // Retained this check
+
                         updateStatus('Checking for problematic characters (all columns)...');
                         allErrors = allErrors.concat(checkAsciiCharacters(lines));
 
@@ -315,33 +173,21 @@
                         updateStatus('Checks complete.');
 
                         // --- Display Results ---
-                        if (allErrors.length === 0) {
-                            resultDiv.innerHTML = `<p class="success">CSV checks passed successfully! No errors found.</p>`;
-                        } else {
-                            let errorHtml = `<p class="error-summary">Found ${allErrors.length} error(s):</p><ul>`;
-                            const errorsToShow = allErrors.slice(0, 50);
-                            errorsToShow.forEach(errMsg => {
-                                const sanitizedMsg = errMsg.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-                                errorHtml += `<li class="error-detail">${sanitizedMsg}</li>`;
-                            });
-                            if (allErrors.length > 50) { errorHtml += `<li><i>... and ${allErrors.length - 50} more errors not shown.</i></li>`; }
-                            errorHtml += `</ul>`;
-                            resultDiv.innerHTML = errorHtml;
-                        }
+                        if (allErrors.length === 0) { /* ... success message ... */
+                             resultDiv.innerHTML = `<p class="success">CSV checks passed successfully! No errors found.</p>`;
+                         } else { /* ... error display logic ... */
+                             let errorHtml = `<p class="error-summary">Found ${allErrors.length} error(s):</p><ul>`; const errorsToShow = allErrors.slice(0, 50); errorsToShow.forEach(errMsg => { const sanitizedMsg = errMsg.replace(/</g, "&lt;").replace(/>/g, "&gt;"); errorHtml += `<li class="error-detail">${sanitizedMsg}</li>`; }); if (allErrors.length > 50) { errorHtml += `<li><i>... and ${allErrors.length - 50} more errors not shown.</i></li>`; } errorHtml += `</ul>`; resultDiv.innerHTML = errorHtml;
+                         }
 
-                    } catch (processingError) {
-                         console.error("Error during CSV processing:", processingError); updateStatus('Processing Error.');
-                         resultDiv.innerHTML = `<p class="error">An unexpected error occurred during CSV processing: ${processingError.message}. Check the console for details.</p>`;
-                    }
-                } else {
-                    updateStatus('File reading failed.');
-                    resultDiv.innerHTML = '<p class="error">Could not automatically determine file encoding without errors (tried UTF-8, windows-1252, ISO-8859-1). The file might use a different encoding, be corrupted, or contain invalid byte sequences.</p>';
-                }
-
-            } else {
-                resultDiv.innerHTML = '<p class="error">Please select a CSV file.</p>';
-                updateStatus('');
-            }
+                    } catch (processingError) { /* ... processing error handling ... */
+                          console.error("Error during CSV processing:", processingError); updateStatus('Processing Error.'); resultDiv.innerHTML = `<p class="error">An unexpected error occurred during CSV processing: ${processingError.message}. Check the console for details.</p>`;
+                     }
+                } else { /* ... file reading failed message ... */
+                     updateStatus('File reading failed.'); resultDiv.innerHTML = '<p class="error">Could not automatically determine file encoding without errors (tried UTF-8, windows-1252, ISO-8859-1). The file might use a different encoding, be corrupted, or contain invalid byte sequences.</p>';
+                 }
+            } else { /* ... no file selected message ... */
+                 resultDiv.innerHTML = '<p class="error">Please select a CSV file.</p>'; updateStatus('');
+             }
         } // End handleFileUpload
     </script>
 
